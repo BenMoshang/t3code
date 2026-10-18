@@ -40,6 +40,7 @@ export function useLinkableMachines(environmentId: EnvironmentId, enabled: boole
   const discoverIfUnasked = useEffectEvent(() => {
     if (discovery.environments.size === 0 && !discovery.refreshing) void refreshDiscovery();
   });
+  // oxlint-disable-next-line t3code/react-effect-budget -- discovery follows the picker's visibility, which a card's mount or a dialog's open sets
   useEffect(() => {
     if (enabled) discoverIfUnasked();
   }, [enabled]);
@@ -49,7 +50,7 @@ export function useLinkableMachines(environmentId: EnvironmentId, enabled: boole
   return linkableMachines({
     environments,
     threadEnvironmentId: environmentId,
-    linkedIds: new Set(links.data?.links.map((link) => link.environmentId)),
+    links: links.data?.links ?? [],
     connect: discovery.environments,
   });
 }

@@ -4,6 +4,7 @@ import {
   type EnvironmentMachineKind,
   type OrchestrationV2TurnItem,
   type PeerLinkRequestAnswerInput,
+  type PeerLinkSummary,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -35,50 +36,55 @@ export interface LinkableMachine {
   readonly linked: boolean;
   /**
    * Where the client knows it answers, most preferred first: the addresses it
-   * reports, then its saved routes, a T3 Connect route by its Connect address.
-   * The server keeps only those that answer as this machine. Empty for a
-   * machine reached only over SSH, whose forward lives in this client.
+   * reports, then its saved routes, then its T3 Connect address. The server
+   * keeps only those that answer as this machine. Empty for a machine reached
+   * only over SSH, whose forward lives in this client.
    */
   readonly urls: ReadonlyArray<string>;
 }
 
 /**
- * The machines in the client's catalog other than the thread's own
- * environment, in catalog order, then the ones only T3 Connect knows.
- * `linkedIds` are the environments the thread's environment links to already.
- * `connect` is what relay discovery found, by environment id: a server reaches
- * a machine there as a browser does, so its Connect address is a usable one.
+ * The catalog's machines other than the thread's own, in catalog order, then those only T3
+ * Connect knows. `links` are the thread environment's; an expired one no longer counts as
+ * linked. `connect` is what relay discovery found, and a server reaches a machine there as a
+ * browser does, so its Connect address is usable.
  */
 export function linkableMachines(input: {
   readonly environments: ReadonlyArray<
     EnvironmentPresentation & { readonly environmentId: EnvironmentId }
   >;
   readonly threadEnvironmentId: EnvironmentId;
-  readonly linkedIds: ReadonlySet<EnvironmentId>;
+  readonly links: ReadonlyArray<Pick<PeerLinkSummary, "environmentId" | "status">>;
   readonly connect: ReadonlyMap<string, RelayDiscoveredEnvironment>;
 }): ReadonlyArray<LinkableMachine> {
+  const linkedIds = new Set(
+    input.links.flatMap((link) => (link.status === "expired" ? [] : [link.environmentId])),
+  );
   const saved = input.environments
     .filter((environment) => environment.environmentId !== input.threadEnvironmentId)
     .map((environment) => {
       const reported = (environment.serverConfig?.directEndpoints ?? []).map(
         (endpoint) => endpoint.httpBaseUrl,
       );
-      const connect = input.connect.get(environment.environmentId)?.environment.endpoint;
       const routes = connectionRoutes(environment.entry).flatMap((route) => {
-        const url =
-          route.target._tag === "RelayConnectionTarget"
-            ? connect?.httpBaseUrl
-            : routeHttpBaseUrl(route);
-        return url === null || url === undefined ? [] : [url];
+        const url = route.target._tag === "RelayConnectionTarget" ? null : routeHttpBaseUrl(route);
+        return url === null ? [] : [url];
       });
+      const connect = input.connect.get(environment.environmentId)?.environment.endpoint;
       return {
         environmentId: environment.environmentId,
         label: environment.entry.target.label,
         machine: resolveEnvironmentMachineKind(environment.serverConfig),
         connected: environment.connection.phase === "connected",
         connectOnly: false,
-        linked: input.linkedIds.has(environment.environmentId),
-        urls: [...new Set([...reported, ...routes])],
+        linked: linkedIds.has(environment.environmentId),
+        urls: [
+          ...new Set([
+            ...reported,
+            ...routes,
+            ...(connect === undefined ? [] : [connect.httpBaseUrl]),
+          ]),
+        ],
       };
     });
   const savedIds = new Set<string>(saved.map((machine) => machine.environmentId));
@@ -98,7 +104,7 @@ export function linkableMachines(input: {
         ),
         connected: false,
         connectOnly: true,
-        linked: input.linkedIds.has(environment.environmentId),
+        linked: linkedIds.has(environment.environmentId),
         urls: [environment.endpoint.httpBaseUrl],
       };
     });

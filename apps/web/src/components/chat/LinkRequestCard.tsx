@@ -277,7 +277,7 @@ function LinkRequestDialog(props: {
     }
     let code = pairingCode;
     if (canMint && targetId !== null) {
-      const minted = await mintPairingCodeOn(targetId);
+      const minted = await mintPairingCodeOn(targetId, access);
       if (Result.isFailure(minted)) {
         setMintFailed((failed) => new Set(failed).add(targetId));
         setError(linkRequestFailureMessage(minted.failure));
@@ -390,39 +390,45 @@ function LinkRequestDialog(props: {
                     ) : null}
                   </label>
                 ) : null}
-                {useExisting ? (
-                  <p className="text-xs text-muted-foreground">
-                    This environment is already linked to {targetName}. The agent can use that link
-                    as it is; change its access in Settings → Connections.
-                  </p>
-                ) : null}
               </>
             ) : (
               <>
                 {item.url !== undefined && !pickMachine ? (
                   <p className="truncate text-xs text-muted-foreground">{item.url}</p>
                 ) : null}
-                {canMint ? null : (
-                  <label className="block space-y-1.5">
-                    <span className="block text-xs font-medium text-foreground">Pairing code</span>
-                    <Input
-                      value={pairingCode}
-                      onChange={(event) => setPairingCode(event.target.value)}
-                      placeholder="Paste the code"
-                      disabled={busy}
-                      autoComplete="one-time-code"
-                      nativeInput
-                      spellCheck={false}
-                    />
-                    <span className="block text-xs text-muted-foreground">
-                      Create a link on {targetName}: Settings → Connections → Create link, then
-                      paste its code here.
-                    </span>
-                  </label>
+                {useExisting ? null : (
+                  <>
+                    {canMint ? null : (
+                      <label className="block space-y-1.5">
+                        <span className="block text-xs font-medium text-foreground">
+                          Pairing code
+                        </span>
+                        <Input
+                          value={pairingCode}
+                          onChange={(event) => setPairingCode(event.target.value)}
+                          placeholder="Paste the code"
+                          disabled={busy}
+                          autoComplete="one-time-code"
+                          nativeInput
+                          spellCheck={false}
+                        />
+                        <span className="block text-xs text-muted-foreground">
+                          Create a link on {targetName}: Settings → Connections → Create link, then
+                          paste its code here.
+                        </span>
+                      </label>
+                    )}
+                    <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
+                  </>
                 )}
-                <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
               </>
             )}
+            {useExisting ? (
+              <p className="text-xs text-muted-foreground">
+                This environment is already linked to {targetName}. The agent can use that link as
+                it is; change its access in Settings → Connections.
+              </p>
+            ) : null}
             {error !== null ? (
               <p role="alert" className="text-xs text-destructive">
                 {error}

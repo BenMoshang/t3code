@@ -3839,7 +3839,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.equal(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"auto"}}'), "true");
         assert.isUndefined(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}'));
         assert.isUndefined(yield* openedToolSearch("{}"));
-        // --settings beats every settings file.
+        // --settings beats local, project, and user settings.
         assert.equal(
           yield* openedToolSearch(
             '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}',

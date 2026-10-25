@@ -1028,6 +1028,11 @@ describe("ClaudeAdapterV2 append-system-prompt-file launch argument", () => {
         }).message,
     ],
     ["--settings '{not json}'", () => new ClaudeAdapterV2.ClaudeSettingsLaunchArgError({}).message],
+    // Without a closing brace this must not become a file path that echoes the secret.
+    [
+      `--settings '{"env":{"ANTHROPIC_API_KEY":"secret-settings-key"},'`,
+      () => new ClaudeAdapterV2.ClaudeSettingsLaunchArgError({}).message,
+    ],
   ] as const)("fails the turn before opening Claude for %s", ([launchArgs, expectedMessage]) =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -3341,29 +3346,31 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           vi.importActual<typeof ClaudeSdk>("@anthropic-ai/claude-agent-sdk"),
         );
         vi.mocked(ClaudeSdk.resolveSettings).mockImplementation(sdk.resolveSettings);
-        const open = Effect.scoped(
-          Effect.gen(function* () {
-            const harness = yield* makeWakeHarnessWithOptions({
-              settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath: home },
-            });
-            yield* harness.runtime.startTurn(
-              makeClaudeTestTurnInput({
-                threadId: harness.threadId,
-                providerThread: harness.providerThread,
-                now: yield* DateTime.now,
-                attemptId: RunAttemptId.make("attempt-cached-managed-policy"),
-                text: "Run git status.",
-                attachments: [],
-                runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-                  runtimeMode: "full-access",
-                  interactionMode: "default",
-                  cwd,
+        const openWith = (launchArgs: string) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const harness = yield* makeWakeHarnessWithOptions({
+                settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath: home, launchArgs },
+              });
+              yield* harness.runtime.startTurn(
+                makeClaudeTestTurnInput({
+                  threadId: harness.threadId,
+                  providerThread: harness.providerThread,
+                  now: yield* DateTime.now,
+                  attemptId: RunAttemptId.make("attempt-cached-managed-policy"),
+                  text: "Run git status.",
+                  attachments: [],
+                  runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+                    runtimeMode: "full-access",
+                    interactionMode: "default",
+                    cwd,
+                  }),
                 }),
-              }),
-            );
-            return harness.getOpenedOptions()!;
-          }),
-        );
+              );
+              return harness.getOpenedOptions()!;
+            }),
+          );
+        const open = openWith("");
         yield* fileSystem.writeFileString(
           remoteFile,
           JSON.stringify({
@@ -3377,6 +3384,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.isUndefined(restricted.allowDangerouslySkipPermissions);
         yield* fileSystem.remove(remoteFile);
         assert.equal((yield* open).permissionMode, "bypassPermissions");
+        const launchRestricted = yield* openWith(
+          `--settings '{"permissions":{"disableBypassPermissionsMode":"disable"}}'`,
+        );
+        assert.equal(launchRestricted.permissionMode, "auto");
+        assert.isUndefined(launchRestricted.allowDangerouslySkipPermissions);
         yield* fileSystem.writeFileString(remoteFile, "{ invalid json");
         assert.equal((yield* open).permissionMode, "auto");
         yield* fileSystem.remove(remoteFile);
@@ -3797,12 +3809,13 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           settingsJson: string,
           cwd = CLAUDE_TEST_RUNTIME_POLICY.cwd,
           environment?: NodeJS.ProcessEnv,
+          launchArgs = "",
         ) =>
           Effect.scoped(
             Effect.gen(function* () {
               yield* fileSystem.writeFileString(path.join(home, "settings.json"), settingsJson);
               const harness = yield* makeWakeHarnessWithOptions({
-                settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath: home },
+                settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath: home, launchArgs },
                 ...(environment === undefined ? {} : { environment }),
               });
               yield* harness.runtime.startTurn(
@@ -3826,6 +3839,16 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.equal(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"auto"}}'), "true");
         assert.isUndefined(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}'));
         assert.isUndefined(yield* openedToolSearch("{}"));
+        // --settings beats every settings file.
+        assert.equal(
+          yield* openedToolSearch(
+            '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}',
+            CLAUDE_TEST_RUNTIME_POLICY.cwd,
+            undefined,
+            `--settings '{"env":{"ENABLE_TOOL_SEARCH":"false"}}'`,
+          ),
+          "false",
+        );
 
         // Claude Code keeps the local file at the repository root, the main checkout's root in a
         // worktree, and that file beats the user's settings.

@@ -1529,9 +1529,9 @@ const decodeClaudeLaunchArgSettings = Schema.decodeUnknownEffect(
 );
 
 /**
- * Reads the --settings launch argument the way the Claude CLI does: a value in
- * braces is inline JSON, anything else is a file path relative to the cwd.
- * makeClaudeQueryOptions merges the result beneath T3's own settings.
+ * Reads the --settings launch argument: a value starting with a brace is inline
+ * JSON, anything else is a file path relative to the cwd. makeClaudeQueryOptions
+ * merges the result beneath T3's own settings.
  */
 const readClaudeLaunchArgSettings = Effect.fn("ClaudeAdapterV2.readLaunchArgSettings")(
   function* (input: {
@@ -1545,7 +1545,9 @@ const readClaudeLaunchArgSettings = Effect.fn("ClaudeAdapterV2.readLaunchArgSett
     if (value === undefined) return undefined;
     const trimmed = value?.trim() ?? "";
     if (trimmed.length === 0) return yield* new ClaudeSettingsLaunchArgError({});
-    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    // The CLI also wants a closing brace, but then malformed JSON, secrets included, would
+    // become the file path in the error message.
+    if (trimmed.startsWith("{")) {
       return (yield* decodeClaudeLaunchArgSettings(trimmed).pipe(
         Effect.mapError((cause) => new ClaudeSettingsLaunchArgError({ cause })),
       )) as ClaudeSdkSettings;
@@ -2474,6 +2476,7 @@ const ClaudeBypassSettings = Schema.StructWithRest(
 const decodeClaudeBypassSettings = Schema.decodeUnknownEffect(
   fromLenientJson(ClaudeBypassSettings),
 );
+const decodeClaudeLaunchArgBypassSettings = Schema.decodeUnknownEffect(ClaudeBypassSettings);
 
 const ClaudePromptCacheTtl = Schema.Literals(["5m", "1h"]);
 const decodeClaudePromptCacheTtl = Schema.decodeUnknownOption(ClaudePromptCacheTtl);
@@ -4246,12 +4249,17 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           serverManagedSettings: remote,
         }),
       );
-      const cascade = claudeBypassAvailability(resolved.effective);
-      const user = claudeBypassAvailability(home);
-      const cached = claudeBypassAvailability(remote);
+      const launchArgSettings = yield* readClaudeLaunchArgSettings({
+        settings: adapterOptions.settings,
+        cwd,
+        fileSystem,
+        path,
+      });
+      const launch = yield* decodeClaudeLaunchArgBypassSettings(launchArgSettings ?? {});
+      const sources = [resolved.effective, home, remote, launch].map(claudeBypassAvailability);
       return {
-        bypassDisabled: cascade.bypassDisabled || user.bypassDisabled || cached.bypassDisabled,
-        autoDisabled: cascade.autoDisabled || user.autoDisabled || cached.autoDisabled,
+        bypassDisabled: sources.some((source) => source.bypassDisabled),
+        autoDisabled: sources.some((source) => source.autoDisabled),
       };
     },
   );
@@ -4324,10 +4332,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
       if (path.dirname(directory) === directory) return cwd;
     }
   });
-  // Settings env beats the process env, local over project over user, and a local file an older
-  // Claude Code left in cwd applies under the root one. resolveSettings reads local from cwd only.
+  // Settings env beats the process env, --settings over local over project over user, and a local
+  // file an older Claude Code left in cwd applies under the root one. resolveSettings reads local
+  // from cwd only.
   const resolveToolSearchOverride = Effect.fn("ClaudeAdapterV2.resolveToolSearchOverride")(
-    function* (cwd: string | null) {
+    function* (cwd: string | null, launchArgSettings: ClaudeSdkSettings | undefined) {
+      const launchValue = launchArgSettings?.env?.ENABLE_TOOL_SEARCH;
+      if (typeof launchValue === "string") return claudeToolSearchOverride(launchValue);
       const localDirectory = cwd === null ? null : yield* localSettingsDirectory(cwd);
       const settingsFiles = [
         ...(cwd === null || localDirectory === null
@@ -9687,7 +9698,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             turnInput.nativeThreadHasTurns ?? turnInput.providerTurnOrdinal > 1;
           const shouldResume =
             resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
-          const toolSearchOverride = yield* resolveToolSearchOverride(turnInput.runtimePolicy.cwd);
+          const toolSearchOverride = yield* resolveToolSearchOverride(
+            turnInput.runtimePolicy.cwd,
+            launchArgSettings,
+          );
           const queryOptions = makeClaudeQueryOptions({
             modelSelection: turnInput.modelSelection,
             nativeThreadId,

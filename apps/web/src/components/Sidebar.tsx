@@ -202,7 +202,6 @@ import {
 } from "./sidebar/routeReveal";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
 import {
   Combobox,
   ComboboxEmpty,
@@ -2850,7 +2849,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             hideIndicator
                             value={item}
                             {...(project
-                              ? { "aria-selected": projectScopeKeys.includes(item.value) }
+                              ? {
+                                  "aria-selected": projectScopeKeys.includes(item.value),
+                                  // Base UI marks one value; several selected projects share its look.
+                                  ...(projectScopeKeys.includes(item.value)
+                                    ? { "data-selected": "" }
+                                    : {}),
+                                }
                               : {})}
                             onContextMenu={(event) => {
                               if (project) handleProjectSettings(event, project);
@@ -2884,41 +2889,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               >
                                 <SettingsIcon className="size-3.5" />
                               </Button>
-                            ) : null}
-                            {project ? (
-                              <span
-                                className={
-                                  projectScopeKeys.includes(item.value)
-                                    ? "flex"
-                                    : "flex opacity-0 in-data-highlighted:opacity-100 pointer-coarse:opacity-100"
-                                }
-                              >
-                                <Button
-                                  size="icon-xs"
-                                  variant="ghost-muted"
-                                  tabIndex={-1}
-                                  aria-hidden="true"
-                                  title={
-                                    projectScopeKeys.includes(item.value)
-                                      ? `Remove ${project.displayName} from the filter (Shift+click or Shift+Enter)`
-                                      : `Add ${project.displayName} to the filter (Shift+click or Shift+Enter)`
-                                  }
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    toggleProjectScopeKey(item.value);
-                                  }}
-                                >
-                                  <span className="pointer-events-none flex">
-                                    <Checkbox
-                                      checked={projectScopeKeys.includes(item.value)}
-                                      tabIndex={-1}
-                                      aria-hidden
-                                    />
-                                  </span>
-                                </Button>
-                              </span>
                             ) : null}
                           </ComboboxItem>
                         );

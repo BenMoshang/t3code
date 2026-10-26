@@ -60,16 +60,26 @@ export function presentBackgroundWork(
 ): BackgroundWorkPresentation | null {
   const pending = presentPendingBackgroundWork(tasks);
   if (pending === null) return null;
-  const byChild = new Map(
-    subagents.flatMap((agent) =>
-      agent.childThreadId === null ? [] : [[agent.childThreadId, agent] as const],
-    ),
+  // A child thread can host several subagent records, so prefer the task's own record, then
+  // the newest live one for that thread, and never give one record to two rows.
+  const newestFirst = subagents.toSorted(
+    (left, right) =>
+      Number(subagentRowStatus(right.status) === "running") -
+        Number(subagentRowStatus(left.status) === "running") ||
+      DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
   );
-  const matched: OrchestrationV2Subagent[] = [];
+  const rowByAgent = new Map<OrchestrationV2Subagent, BackgroundWorkRow>();
   const running = pending.items.map((item): BackgroundWorkRow => {
-    const agent = item.childThreadId === undefined ? undefined : byChild.get(item.childThreadId);
-    if (agent) matched.push(agent);
-    return {
+    const unclaimed = newestFirst.filter((agent) => !rowByAgent.has(agent));
+    const agent =
+      item.kind !== "subagent"
+        ? undefined
+        : (unclaimed.find((candidate) => candidate.nativeTaskRef?.nativeId === item.taskId) ??
+          unclaimed.find(
+            (candidate) =>
+              item.childThreadId !== undefined && candidate.childThreadId === item.childThreadId,
+          ));
+    const row: BackgroundWorkRow = {
       key: item.taskId,
       kind: item.kind,
       label: item.label,
@@ -79,7 +89,10 @@ export function presentBackgroundWork(
       endedAtMs: null,
       childThreadId: item.childThreadId,
     };
+    if (agent) rowByAgent.set(agent, row);
+    return row;
   });
+  const matched = [...rowByAgent.keys()];
   // Siblings from the same run that already finished; the pending list drops them.
   const runIds = new Set(matched.map((agent) => agent.runId).filter((runId) => runId !== null));
   const matchedIds = new Set(matched.map((agent) => agent.id));
@@ -110,7 +123,7 @@ export function presentBackgroundWork(
       (left, right) =>
         DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
     )[0];
-  const newestRow = newest && running.find((row) => row.childThreadId === newest.childThreadId);
+  const newestRow = newest && rowByAgent.get(newest);
   const summary =
     newestRow?.activity != null
       ? `${newestRow.label}: ${newestRow.activity}`

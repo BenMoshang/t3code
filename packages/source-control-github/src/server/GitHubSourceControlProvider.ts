@@ -895,6 +895,7 @@ export const make = Effect.gen(function* () {
           operation: "GitHubSourceControlProvider.recordBranchBase",
           cwd,
           args: ["config", `branch.${branch}.gh-merge-base`, baseBranch],
+          writesSharedConfig: true,
         })
         .pipe(
           Effect.asVoid,

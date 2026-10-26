@@ -185,6 +185,7 @@ interface ExecuteGitOptions {
   maxOutputBytes?: number | undefined;
   appendTruncationMarker?: boolean | undefined;
   progress?: GitVcsDriver.ExecuteGitProgress | undefined;
+  writesSharedConfig?: boolean | undefined;
 }
 
 function parseBranchAb(value: string): { ahead: number; behind: number } {
@@ -1072,6 +1073,21 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  const sharedConfigLocks = new Map<string, Semaphore.Semaphore>();
+  const withSharedConfigLock = <A, E>(cwd: string, effect: Effect.Effect<A, E>) =>
+    resolveRepositoryPaths(cwd).pipe(
+      Effect.orElseSucceed(() => null),
+      Effect.flatMap((repositoryPaths) => {
+        if (repositoryPaths === null) return effect;
+        let lock = sharedConfigLocks.get(repositoryPaths.gitCommonDir);
+        if (lock === undefined) {
+          lock = Semaphore.makeUnsafe(1);
+          sharedConfigLocks.set(repositoryPaths.gitCommonDir, lock);
+        }
+        return lock.withPermit(effect);
+      }),
+    );
+
   const execute: GitVcsDriver.GitVcsDriver["Service"]["execute"] = (input) =>
     executeRaw(input).pipe(
       withMetrics({
@@ -1093,6 +1109,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           "git.args_count": input.args.length,
         },
       }),
+      // Outside the process permit: resolving the repository may itself need one.
+      (execution) =>
+        input.writesSharedConfig ? withSharedConfigLock(input.cwd, execution) : execution,
     );
 
   const executeGit = (
@@ -1117,6 +1136,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ? { appendTruncationMarker: options.appendTruncationMarker }
         : {}),
       ...(options.progress ? { progress: options.progress } : {}),
+      ...(options.writesSharedConfig ? { writesSharedConfig: true } : {}),
     }).pipe(
       Effect.flatMap((result) => {
         if (options.allowNonZeroExit || result.exitCode === 0) {
@@ -2602,17 +2622,23 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         const publishBranch = yield* resolvePublishBranchName(cwd, branch);
         // Publishing retargets the upstream, so preserve its comparison base first.
         if ((yield* readBranchBase(cwd, branch)) === null) {
-          yield* runGit("GitVcsDriver.pushCurrentBranch.recordMergeBase", cwd, [
-            "config",
-            branchBaseConfigKey(branch),
-            currentUpstream.branchName,
-          ]);
+          yield* runGit(
+            "GitVcsDriver.pushCurrentBranch.recordMergeBase",
+            cwd,
+            ["config", branchBaseConfigKey(branch), currentUpstream.branchName],
+            { writesSharedConfig: true },
+          );
           if (!(yield* readConfigValue(cwd, `branch.${branch}.t3-merge-base-ref`))) {
-            yield* runGit("GitVcsDriver.pushCurrentBranch.recordComparisonRef", cwd, [
-              "config",
-              `branch.${branch}.t3-merge-base-ref`,
-              `refs/remotes/${currentUpstream.upstreamRef}`,
-            ]);
+            yield* runGit(
+              "GitVcsDriver.pushCurrentBranch.recordComparisonRef",
+              cwd,
+              [
+                "config",
+                `branch.${branch}.t3-merge-base-ref`,
+                `refs/remotes/${currentUpstream.upstreamRef}`,
+              ],
+              { writesSharedConfig: true },
+            );
           }
         }
         yield* runGit(
@@ -3714,6 +3740,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       {
         fallbackErrorDetail: "git worktree add failed",
         timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+        // Tracking a remote start point writes the new branch's upstream.
+        writesSharedConfig: true,
         ...(onCheckoutProgress
           ? {
               // Git only prints checkout progress when stderr is a tty or the
@@ -3805,18 +3833,20 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const base = yield* resolveBranchBase(input.cwd, input.baseRefName);
       if (base) {
         yield* Effect.gen(function* () {
-          yield* runGit("GitVcsDriver.createWorktree.configureBaseRef", input.cwd, [
-            "config",
-            branchBaseConfigKey(newRefName),
-            base.branchName,
-          ]);
+          yield* runGit(
+            "GitVcsDriver.createWorktree.configureBaseRef",
+            input.cwd,
+            ["config", branchBaseConfigKey(newRefName), base.branchName],
+            { writesSharedConfig: true },
+          );
           if (base.baseRef.startsWith("refs/remotes/")) {
             // The base key names a branch on the host; this one keeps the remote it came from.
-            yield* runGit("GitVcsDriver.createWorktree.configureComparisonRef", input.cwd, [
-              "config",
-              `branch.${input.newRefName}.t3-merge-base-ref`,
-              base.baseRef,
-            ]);
+            yield* runGit(
+              "GitVcsDriver.createWorktree.configureComparisonRef",
+              input.cwd,
+              ["config", `branch.${input.newRefName}.t3-merge-base-ref`, base.baseRef],
+              { writesSharedConfig: true },
+            );
           }
         }).pipe(
           Effect.catchTags({
@@ -4125,13 +4155,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     });
 
   const setBranchUpstream: GitVcsDriver.GitVcsDriver["Service"]["setBranchUpstream"] = (input) =>
-    runGit("GitVcsDriver.setBranchUpstream", input.cwd, [
-      "branch",
-      "--set-upstream-to",
-      `${input.remoteName}/${input.remoteBranch}`,
-      "--",
-      input.branch,
-    ]);
+    runGit(
+      "GitVcsDriver.setBranchUpstream",
+      input.cwd,
+      [
+        "branch",
+        "--set-upstream-to",
+        `${input.remoteName}/${input.remoteBranch}`,
+        "--",
+        input.branch,
+      ],
+      { writesSharedConfig: true },
+    );
 
   /**
    * Unlinks links under `target` without following them and removes the

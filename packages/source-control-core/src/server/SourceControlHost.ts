@@ -80,6 +80,8 @@ export class SourceControlHost extends Context.Service<
         readonly args: ReadonlyArray<string>;
         readonly maxOutputBytes?: number;
         readonly appendTruncationMarker?: boolean;
+        /** Serializes with other writers of the repository's shared .git/config. */
+        readonly writesSharedConfig?: boolean;
       }) => Effect.Effect<SourceControlGitOutput, GitCommandError>;
       readonly resolveCommit: (input: {
         readonly cwd: string;

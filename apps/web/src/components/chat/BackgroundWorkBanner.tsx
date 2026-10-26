@@ -99,7 +99,7 @@ export function presentBackgroundWork(
       status: "running",
       startedAtMs: toMs(agent?.startedAt ?? null),
       endedAtMs: null,
-      childThreadId: item.childThreadId,
+      childThreadId: item.childThreadId ?? agent?.childThreadId ?? undefined,
     };
     if (agent) rowByAgent.set(agent, row);
     return row;

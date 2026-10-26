@@ -7,14 +7,16 @@ import {
   presentPendingBackgroundWork,
   type PendingBackgroundWorkPresentation,
 } from "@t3tools/client-runtime/state/thread-execution";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CircleDashedIcon, CircleXIcon, TerminalIcon } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerBanner } from "./ComposerBanner";
 
 type RowStatus = "running" | "completed" | "failed";
@@ -57,9 +59,18 @@ function subagentRowStatus(status: OrchestrationV2Subagent["status"]): RowStatus
 export function presentBackgroundWork(
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
   subagents: ReadonlyArray<OrchestrationV2Subagent>,
+  turnItems: ThreadStructure["turnItems"],
 ): BackgroundWorkPresentation | null {
   const pending = presentPendingBackgroundWork(tasks);
   if (pending === null) return null;
+  // Turn-item tasks are keyed like derivePendingBackgroundWork keys them; the item names its record.
+  const subagentIdByTaskId = new Map(
+    turnItems.flatMap((item) =>
+      item.type === "subagent"
+        ? [[item.nativeItemRef?.nativeId || String(item.id), item.subagentId] as const]
+        : [],
+    ),
+  );
   // A child thread can host several subagent records, so prefer the task's own record, then
   // the newest live one for that thread, and never give one record to two rows.
   const newestFirst = subagents.toSorted(
@@ -74,7 +85,8 @@ export function presentBackgroundWork(
     const agent =
       item.kind !== "subagent"
         ? undefined
-        : (unclaimed.find((candidate) => candidate.nativeTaskRef?.nativeId === item.taskId) ??
+        : (unclaimed.find((candidate) => candidate.id === subagentIdByTaskId.get(item.taskId)) ??
+          unclaimed.find((candidate) => candidate.nativeTaskRef?.nativeId === item.taskId) ??
           unclaimed.find(
             (candidate) =>
               item.childThreadId !== undefined && candidate.childThreadId === item.childThreadId,
@@ -137,7 +149,7 @@ export function presentBackgroundWork(
       ? `${pending.waiting ? "Waiting on" : "Running"} ${only.label}`
       : pending.title
     : !pending.waiting
-      ? `${rows.length} running in background`
+      ? `${running.length} running in background`
       : finished.length > 0 && allSubagents
         ? `Waiting on ${running.length} of ${rows.length} subagents`
         : pending.title;
@@ -148,7 +160,8 @@ export function presentBackgroundWork(
 function ProgressRing({ rows }: { rows: ReadonlyArray<BackgroundWorkRow> }) {
   const radius = 6.25;
   const circumference = 2 * Math.PI * radius;
-  const gap = 2.2;
+  // Gaps shrink with the count so many agents still leave every arc a positive length.
+  const gap = Math.min(2.2, (circumference / rows.length) * 0.35);
   const segment = circumference / rows.length - gap;
   return (
     <svg viewBox="0 0 16 16" className="-rotate-90" aria-hidden>
@@ -214,6 +227,20 @@ function Elapsed({ startedAtMs, endedAtMs }: { startedAtMs: number; endedAtMs: n
 
 const mutedText = "text-muted-foreground/70 light:text-muted-foreground";
 
+/** Truncated text whose full value stays reachable on hover. */
+function FullText(props: { text: string; className: string; children?: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className={props.className} />}>
+        {props.children ?? props.text}
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] whitespace-normal">
+        {props.text}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 function Rows({
   rows,
   onOpenThread,
@@ -226,69 +253,74 @@ function Rows({
   const rowClassName =
     "grid h-7 w-full grid-cols-[var(--composer-banner-icon-column)_minmax(0,1fr)_auto] items-center gap-x-1 rounded-md pe-2 text-start sm:h-6";
   return (
-    <ul className="mt-0.5 grid pb-1" aria-label="Background work">
-      {shown.map((row) => {
-        const childThreadId = row.childThreadId;
-        const content = (
-          <>
-            <span className="flex justify-center">
-              <RowIcon row={row} />
-            </span>
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span
-                className={cn(
-                  "max-w-[40%] shrink-0 truncate text-foreground @max-[480px]:max-w-[55%]",
-                  row.kind === "command" && "font-mono",
-                )}
-              >
-                {row.label}
+    <ComposerBanner.Scroll>
+      <ul className="mt-0.5 grid pb-1" aria-label="Background work">
+        {shown.map((row) => {
+          const childThreadId = row.childThreadId;
+          const content = (
+            <>
+              <span className="flex justify-center">
+                <RowIcon row={row} />
               </span>
-              {row.activity ? (
-                <span className={cn("w-0 min-w-0 grow truncate", mutedText)}>{row.activity}</span>
+              <span className="flex min-w-0 items-baseline gap-2">
+                <FullText
+                  text={row.label}
+                  className={cn(
+                    "min-w-0 truncate text-foreground",
+                    row.activity && "max-w-[40%] shrink-0 @max-[480px]:max-w-[55%]",
+                    row.kind === "command" && "font-mono",
+                  )}
+                />
+                {row.activity ? (
+                  <FullText
+                    text={row.activity}
+                    className={cn("w-0 min-w-0 grow truncate", mutedText)}
+                  />
+                ) : null}
+              </span>
+              {row.status === "failed" ? (
+                <span className="text-foreground">Failed</span>
+              ) : row.startedAtMs !== null ? (
+                <span
+                  className={cn(
+                    "text-muted-foreground/60 tabular-nums @max-[480px]:hidden",
+                    "light:text-muted-foreground",
+                  )}
+                >
+                  <Elapsed startedAtMs={row.startedAtMs} endedAtMs={row.endedAtMs} />
+                </span>
               ) : null}
+            </>
+          );
+          return (
+            <li key={row.key}>
+              {childThreadId === undefined ? (
+                <div className={rowClassName}>{content}</div>
+              ) : (
+                <button
+                  type="button"
+                  className={cn(
+                    rowClassName,
+                    "cursor-pointer hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                  )}
+                  onClick={() => onOpenThread(childThreadId)}
+                >
+                  {content}
+                </button>
+              )}
+            </li>
+          );
+        })}
+        {folded.length > 0 ? (
+          <li className={cn(rowClassName, "text-muted-foreground")}>
+            <span className="flex justify-center">
+              <CheckIcon className="size-3.5" />
             </span>
-            {row.status === "failed" ? (
-              <span className="text-foreground">Failed</span>
-            ) : row.startedAtMs !== null ? (
-              <span
-                className={cn(
-                  "text-muted-foreground/60 tabular-nums @max-[480px]:hidden",
-                  "light:text-muted-foreground",
-                )}
-              >
-                <Elapsed startedAtMs={row.startedAtMs} endedAtMs={row.endedAtMs} />
-              </span>
-            ) : null}
-          </>
-        );
-        return (
-          <li key={row.key}>
-            {childThreadId === undefined ? (
-              <div className={rowClassName}>{content}</div>
-            ) : (
-              <button
-                type="button"
-                className={cn(
-                  rowClassName,
-                  "cursor-pointer hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                )}
-                onClick={() => onOpenThread(childThreadId)}
-              >
-                {content}
-              </button>
-            )}
+            <span>+{folded.length} done</span>
           </li>
-        );
-      })}
-      {folded.length > 0 ? (
-        <li className={cn(rowClassName, "text-muted-foreground")}>
-          <span className="flex justify-center">
-            <CheckIcon className="size-3.5" />
-          </span>
-          <span>+{folded.length} done</span>
-        </li>
-      ) : null}
-    </ul>
+        ) : null}
+      </ul>
+    </ComposerBanner.Scroll>
   );
 }
 
@@ -310,7 +342,10 @@ export function BackgroundWorkBanner(props: {
         <HeaderIcon rows={presentation.rows} />
       </ComposerBanner.Icon>
       <ComposerBanner.Content className="whitespace-nowrap">
-        <span className="min-w-0 truncate font-medium leading-7 sm:leading-6">
+        <FullText
+          text={single?.kind === "command" ? single.label : presentation.title}
+          className="min-w-0 truncate font-medium leading-7 sm:leading-6"
+        >
           {single?.kind === "command" ? (
             <>
               {presentation.waiting ? "Waiting on " : "Running "}
@@ -319,11 +354,12 @@ export function BackgroundWorkBanner(props: {
           ) : (
             presentation.title
           )}
-        </span>
+        </FullText>
         {description && (single || !expanded) ? (
-          <span className={cn("w-0 min-w-0 grow truncate @max-[400px]:sr-only", mutedText)}>
-            {description}
-          </span>
+          <FullText
+            text={description}
+            className={cn("w-0 min-w-0 grow truncate @max-[400px]:sr-only", mutedText)}
+          />
         ) : null}
       </ComposerBanner.Content>
       <ComposerBanner.Actions className="flex-nowrap">

@@ -93,12 +93,13 @@ export function backgroundWorkBannerItem(input: {
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
+  readonly turnItems: Parameters<typeof presentBackgroundWork>[2];
   readonly stopDisabled: boolean;
   readonly stopping: boolean;
   readonly onStop: () => Promise<void>;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }): ComposerBannerStackContent | null {
-  const presentation = presentBackgroundWork(input.tasks, input.subagents);
+  const presentation = presentBackgroundWork(input.tasks, input.subagents, input.turnItems);
   if (presentation === null) return null;
   return {
     id: `background-work:${input.threadId}`,

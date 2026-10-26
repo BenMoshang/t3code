@@ -1,7 +1,6 @@
 import type {
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderGoal,
-  OrchestrationV2Subagent,
   ThreadId,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -92,14 +91,13 @@ export function goalBannerItem(input: {
 export function backgroundWorkBannerItem(input: {
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
-  readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
-  readonly turnItems: Parameters<typeof presentBackgroundWork>[2];
+  readonly turnItems: Parameters<typeof presentBackgroundWork>[1];
   readonly stopDisabled: boolean;
   readonly stopping: boolean;
   readonly onStop: () => Promise<void>;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }): ComposerBannerStackContent | null {
-  const presentation = presentBackgroundWork(input.tasks, input.subagents, input.turnItems);
+  const presentation = presentBackgroundWork(input.tasks, input.turnItems);
   if (presentation === null) return null;
   return {
     id: `background-work:${input.threadId}`,

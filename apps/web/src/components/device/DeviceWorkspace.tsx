@@ -15,6 +15,8 @@ export function DeviceWorkspace(props: {
   device: DeviceSummary;
   hostLabel: string;
   hostDiagnostics: string | undefined;
+  /** Simlock devices: a watch-only stream, or none without an operator token. */
+  viewOnly?: { readonly unavailableReason?: string | undefined } | undefined;
   visible: boolean;
   onFloat: () => void;
   onClose: () => void;
@@ -95,6 +97,14 @@ export function DeviceWorkspace(props: {
             axOverlay={axOverlay}
             allowPhoneView
             onHandle={setHandle}
+            {...(props.viewOnly
+              ? {
+                  viewOnly: true,
+                  ...(props.viewOnly.unavailableReason
+                    ? { unavailableReason: props.viewOnly.unavailableReason }
+                    : {}),
+                }
+              : {})}
             renderControls={(view) => (
               <DeviceControlsRail
                 platform={props.device.platform}
@@ -108,6 +118,7 @@ export function DeviceWorkspace(props: {
                 onFloat={props.onFloat}
                 onClose={props.onClose}
                 onPowerOff={props.onPowerOff}
+                viewOnly={!!props.viewOnly}
               />
             )}
           />

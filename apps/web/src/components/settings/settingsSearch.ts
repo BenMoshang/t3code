@@ -376,6 +376,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["beta share guest invite link teammate watch t3 connect tunnel"],
   },
   {
+    id: "simlock-hosts",
+    title: "Simlock device hosts (alpha)",
+    to: "/settings/beta",
+    scope: "environment",
+    searchTerms: ["beta alpha simlock callstack simulator emulator ios android pool lease gateway"],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/general",

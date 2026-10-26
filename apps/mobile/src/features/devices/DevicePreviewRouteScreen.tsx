@@ -407,12 +407,22 @@ function OpenDevicePreview({
     refreshDeviceHubAccess(environmentId);
     return () => void onInputConnected(false);
   }, [environmentId, onInputConnected]);
+  if (preview.viewOnly?.unavailableReason) {
+    return (
+      <View className="flex-1 items-center justify-center px-6">
+        <AppText selectable className="text-center text-sm text-foreground-muted">
+          {preview.viewOnly.unavailableReason}
+        </AppText>
+      </View>
+    );
+  }
   return access ? (
     <DeviceStreamWebView
       ref={streamRef}
       access={access}
       platform={session.platform}
       deviceId={session.deviceId}
+      viewOnly={!!preview.viewOnly}
       colors={{
         background: themeVariables["--color-sheet-solid"],
         foreground: themeVariables["--color-foreground"],

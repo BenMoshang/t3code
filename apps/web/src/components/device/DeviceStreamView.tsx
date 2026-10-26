@@ -86,6 +86,10 @@ export function DeviceStreamView(props: {
   readonly axOverlay?: boolean;
   readonly onHandle?: (handle: DeviceStreamHandle | null) => void;
   readonly onScreen?: (screen: DeviceScreenSize | null) => void;
+  /** A watch-only stream: no input, settings, or fold controls. */
+  readonly viewOnly?: boolean;
+  /** Why this device has no stream at all; shown instead of connecting. */
+  readonly unavailableReason?: string;
 }) {
   const [duoControl, setDuoControl] = useState<DuoControlState>({
     pending: false,
@@ -132,13 +136,18 @@ export function DeviceStreamView(props: {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!access || !canvas || !props.visible) {
+    if (!access || !canvas || !props.visible || props.unavailableReason) {
       setStatus("connecting");
       onHandle?.(null);
       return;
     }
     const client = createDeviceStreamClient(
-      { platform: props.platform, deviceId: props.deviceId, access },
+      {
+        platform: props.platform,
+        deviceId: props.deviceId,
+        access,
+        ...(props.viewOnly ? { viewOnly: true } : {}),
+      },
       createCanvasFrameSink(canvas, () => frameListenerRef.current?.()),
       {
         onDuoControl: setDuoControl,
@@ -196,6 +205,8 @@ export function DeviceStreamView(props: {
     props.deviceId,
     props.environmentId,
     props.platform,
+    props.unavailableReason,
+    props.viewOnly,
     props.visible,
   ]);
 
@@ -327,7 +338,7 @@ export function DeviceStreamView(props: {
             streaming: status === "streaming",
             phoneUnavailableReason,
             foldingControls:
-              props.platform === "android" && access ? (
+              props.platform === "android" && access && !props.viewOnly ? (
                 <DeviceAndroidFoldControls
                   key={`${props.hostId}:${props.deviceId}`}
                   access={access}
@@ -521,7 +532,13 @@ export function DeviceStreamView(props: {
             </Button>
           </div>
         ) : null}
-        {status === "streaming" && !inputState.connected ? (
+        {status === "streaming" && props.viewOnly ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
+            <span className="rounded-md bg-background/85 px-2 py-1 text-xs text-muted-foreground">
+              View only. Agents drive this device.
+            </span>
+          </div>
+        ) : status === "streaming" && !inputState.connected ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
             <span className="rounded-md bg-background/85 px-2 py-1 text-xs text-muted-foreground">
               Input disconnected{inputState.detail ? ` (${inputState.detail})` : ""}, reconnecting…
@@ -535,7 +552,17 @@ export function DeviceStreamView(props: {
             </span>
           </div>
         ) : null}
-        {status !== "streaming" && !(retainingFrame && showPhone) ? (
+        {props.unavailableReason ? (
+          <div className="absolute inset-0">
+            <DeviceLoadingView
+              name={props.deviceName ?? "Device"}
+              description={props.deviceDescription ?? ""}
+              stage="stream"
+              message={props.unavailableReason}
+              error
+            />
+          </div>
+        ) : status !== "streaming" && !(retainingFrame && showPhone) ? (
           <div className="absolute inset-0">
             <DeviceLoadingView
               name={props.deviceName ?? "Device"}

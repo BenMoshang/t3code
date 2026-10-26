@@ -2812,13 +2812,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           event.nativeEvent.isComposing ||
                           event.ctrlKey ||
                           event.altKey ||
-                          event.metaKey ||
-                          (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+                          event.metaKey
                         ) {
                           return;
                         }
                         const scopeKey = highlightedProjectScopeKeyRef.current;
                         const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
+                        if (event.shiftKey && event.key === "Enter") {
+                          if (!project) return;
+                          event.preventDefault();
+                          toggleProjectScopeKey(project.projectKey);
+                          return;
+                        }
+                        if (
+                          event.key !== "ContextMenu" &&
+                          !(event.shiftKey && event.key === "F10")
+                        ) {
+                          return;
+                        }
                         if (project) handleProjectSettings(event, project);
                       }}
                       onChange={(event) =>
@@ -2837,6 +2848,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             key={item.value}
                             hideIndicator
                             value={item}
+                            {...(project
+                              ? { "aria-selected": projectScopeKeys.includes(item.value) }
+                              : {})}
                             onContextMenu={(event) => {
                               if (project) handleProjectSettings(event, project);
                             }}
@@ -2885,8 +2899,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   aria-hidden="true"
                                   title={
                                     projectScopeKeys.includes(item.value)
-                                      ? `Remove ${project.displayName} from the filter (Shift+click)`
-                                      : `Add ${project.displayName} to the filter (Shift+click)`
+                                      ? `Remove ${project.displayName} from the filter (Shift+click or Shift+Enter)`
+                                      : `Add ${project.displayName} to the filter (Shift+click or Shift+Enter)`
                                   }
                                   onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {

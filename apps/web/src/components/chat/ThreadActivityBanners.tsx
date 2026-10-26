@@ -1,20 +1,18 @@
 import type {
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderGoal,
+  OrchestrationV2Subagent,
   ThreadId,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import {
-  presentPendingBackgroundWork,
-  presentProviderGoal,
-} from "@t3tools/client-runtime/state/thread-execution";
+import { presentProviderGoal } from "@t3tools/client-runtime/state/thread-execution";
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
 import { GitBranchIcon, MessageCircleIcon, ShieldQuestionIcon, TargetIcon } from "lucide-react";
 import { Fragment } from "react";
-import { cn } from "~/lib/utils";
 import { Button, InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import type { ComposerBannerStackItem } from "./ComposerBannerStack";
+import { BackgroundWorkBanner, presentBackgroundWork } from "./BackgroundWorkBanner";
+import type { ComposerBannerStackContent, ComposerBannerStackItem } from "./ComposerBannerStack";
 
 /** Subagents waiting on the user, unless the parent is itself waiting on them. */
 export function childInputBannerItem(input: {
@@ -94,66 +92,26 @@ export function goalBannerItem(input: {
 export function backgroundWorkBannerItem(input: {
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+  readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
   readonly stopDisabled: boolean;
   readonly stopping: boolean;
   readonly onStop: () => Promise<void>;
   readonly onOpenThread: (threadId: ThreadId) => void;
-}): ComposerBannerStackItem | null {
-  const { onOpenThread } = input;
-  const presentation = presentPendingBackgroundWork(input.tasks);
+}): ComposerBannerStackContent | null {
+  const presentation = presentBackgroundWork(input.tasks, input.subagents);
   if (presentation === null) return null;
   return {
     id: `background-work:${input.threadId}`,
     variant: "default",
     priority: "activity",
-    icon: (
-      <span
-        className={cn(
-          "size-1.5 rounded-full bg-foreground",
-          presentation.waiting && "motion-safe:animate-status-pulse",
-        )}
-        aria-hidden="true"
+    content: (
+      <BackgroundWorkBanner
+        presentation={presentation}
+        stopDisabled={input.stopDisabled}
+        stopping={input.stopping}
+        onStop={input.onStop}
+        onOpenThread={input.onOpenThread}
       />
-    ),
-    title: presentation.title,
-    description:
-      presentation.items.length === 1 && presentation.items[0]?.childThreadId === undefined
-        ? undefined
-        : presentation.items.map((item, index) => {
-            const childThreadId = item.childThreadId;
-            const separator = index < presentation.items.length - 1 ? "," : null;
-            return (
-              <Fragment key={item.taskId}>
-                {index > 0 ? " " : null}
-                {childThreadId === undefined ? (
-                  <>
-                    {item.label}
-                    {separator}
-                  </>
-                ) : (
-                  <span className="whitespace-nowrap">
-                    <InlineButton
-                      tone="muted"
-                      aria-label={`${presentation.items.length === 1 ? "Show" : "Open"} subagent ${item.label}`}
-                      onClick={() => onOpenThread(childThreadId)}
-                    >
-                      {presentation.items.length === 1 ? "Show" : item.label}
-                    </InlineButton>
-                    {separator}
-                  </span>
-                )}
-              </Fragment>
-            );
-          }),
-    actions: (
-      <Button
-        size="xs"
-        variant="ghost"
-        disabled={input.stopDisabled}
-        onClick={() => void input.onStop()}
-      >
-        {input.stopping ? "Stopping..." : "Stop"}
-      </Button>
     ),
   };
 }

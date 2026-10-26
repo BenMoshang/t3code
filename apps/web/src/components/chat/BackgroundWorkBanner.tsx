@@ -12,7 +12,7 @@ import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subage
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CircleDashedIcon, CircleXIcon, TerminalIcon } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -227,19 +227,23 @@ function Elapsed({ startedAtMs, endedAtMs }: { startedAtMs: number; endedAtMs: n
 
 const mutedText = "text-muted-foreground/70 light:text-muted-foreground";
 
-/** Truncated text whose full value stays reachable on hover. */
-function FullText(props: { text: string; className: string; children?: ReactNode }) {
+/** Shows a focusable row's untruncated text on hover and on keyboard focus. */
+function FullTextTooltip(props: {
+  lines: ReadonlyArray<string | null>;
+  render: ComponentProps<typeof TooltipTrigger>["render"];
+}) {
   return (
     <Tooltip>
-      <TooltipTrigger render={<span className={props.className} />}>
-        {props.children ?? props.text}
-      </TooltipTrigger>
+      <TooltipTrigger render={props.render} />
       <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] whitespace-normal">
-        {props.text}
+        {props.lines.map((line) => (line ? <div key={line}>{line}</div> : null))}
       </TooltipPopup>
     </Tooltip>
   );
 }
+
+const focusRing =
+  "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
 
 function Rows({
   rows,
@@ -263,19 +267,17 @@ function Rows({
                 <RowIcon row={row} />
               </span>
               <span className="flex min-w-0 items-baseline gap-2">
-                <FullText
-                  text={row.label}
+                <span
                   className={cn(
                     "min-w-0 truncate text-foreground",
                     row.activity && "max-w-[40%] shrink-0 @max-[480px]:max-w-[55%]",
                     row.kind === "command" && "font-mono",
                   )}
-                />
+                >
+                  {row.label}
+                </span>
                 {row.activity ? (
-                  <FullText
-                    text={row.activity}
-                    className={cn("w-0 min-w-0 grow truncate", mutedText)}
-                  />
+                  <span className={cn("w-0 min-w-0 grow truncate", mutedText)}>{row.activity}</span>
                 ) : null}
               </span>
               {row.status === "failed" ? (
@@ -294,20 +296,24 @@ function Rows({
           );
           return (
             <li key={row.key}>
-              {childThreadId === undefined ? (
-                <div className={rowClassName}>{content}</div>
-              ) : (
-                <button
-                  type="button"
-                  className={cn(
-                    rowClassName,
-                    "cursor-pointer hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                  )}
-                  onClick={() => onOpenThread(childThreadId)}
-                >
-                  {content}
-                </button>
-              )}
+              <FullTextTooltip
+                lines={[row.label, row.activity]}
+                render={
+                  childThreadId === undefined ? (
+                    <div tabIndex={0} className={cn(rowClassName, focusRing)}>
+                      {content}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={cn(rowClassName, focusRing, "cursor-pointer hover:bg-accent")}
+                      onClick={() => onOpenThread(childThreadId)}
+                    >
+                      {content}
+                    </button>
+                  )
+                }
+              />
             </li>
           );
         })}
@@ -342,10 +348,7 @@ export function BackgroundWorkBanner(props: {
         <HeaderIcon rows={presentation.rows} />
       </ComposerBanner.Icon>
       <ComposerBanner.Content className="whitespace-nowrap">
-        <FullText
-          text={single?.kind === "command" ? single.label : presentation.title}
-          className="min-w-0 truncate font-medium leading-7 sm:leading-6"
-        >
+        <span className="min-w-0 truncate font-medium leading-7 sm:leading-6">
           {single?.kind === "command" ? (
             <>
               {presentation.waiting ? "Waiting on " : "Running "}
@@ -354,12 +357,11 @@ export function BackgroundWorkBanner(props: {
           ) : (
             presentation.title
           )}
-        </FullText>
+        </span>
         {description && (single || !expanded) ? (
-          <FullText
-            text={description}
-            className={cn("w-0 min-w-0 grow truncate @max-[400px]:sr-only", mutedText)}
-          />
+          <span className={cn("w-0 min-w-0 grow truncate @max-[400px]:sr-only", mutedText)}>
+            {description}
+          </span>
         ) : null}
       </ComposerBanner.Content>
       <ComposerBanner.Actions className="flex-nowrap">
@@ -382,19 +384,25 @@ export function BackgroundWorkBanner(props: {
         {presentation.title}
       </span>
       <div className="flex items-center">
-        {single ? (
-          <ComposerBanner.Row className="flex-1">{header}</ComposerBanner.Row>
-        ) : (
-          <ComposerBanner.Row
-            render={<button type="button" />}
-            aria-expanded={expanded}
-            aria-label={`${presentation.title}. ${expanded ? "Hide" : "Show"} details`}
-            className="flex-1"
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {header}
-          </ComposerBanner.Row>
-        )}
+        <FullTextTooltip
+          lines={[single?.kind === "command" ? single.label : presentation.title, description]}
+          render={
+            single ? (
+              <ComposerBanner.Row tabIndex={0} className={cn("flex-1 rounded-md", focusRing)}>
+                {header}
+              </ComposerBanner.Row>
+            ) : (
+              <ComposerBanner.Row
+                render={<button type="button" />}
+                aria-expanded={expanded}
+                className="flex-1"
+                onClick={() => setExpanded((value) => !value)}
+              >
+                {header}
+              </ComposerBanner.Row>
+            )
+          }
+        />
         <span className="flex gap-1 ps-0.5">
           {singleThreadId === undefined ? null : (
             <Button size="xs" variant="ghost-muted" onClick={() => onOpenThread(singleThreadId)}>

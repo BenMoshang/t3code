@@ -268,7 +268,6 @@ function Rows({
             ) : (
               <button
                 type="button"
-                aria-label={`Open subagent ${row.label}`}
                 className={cn(
                   rowClassName,
                   "cursor-pointer hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
@@ -311,7 +310,7 @@ export function BackgroundWorkBanner(props: {
         <HeaderIcon rows={presentation.rows} />
       </ComposerBanner.Icon>
       <ComposerBanner.Content className="whitespace-nowrap">
-        <span className="min-w-0 shrink-0 truncate font-medium leading-7 sm:leading-6">
+        <span className="min-w-0 truncate font-medium leading-7 sm:leading-6">
           {single?.kind === "command" ? (
             <>
               {presentation.waiting ? "Waiting on " : "Running "}
@@ -321,7 +320,7 @@ export function BackgroundWorkBanner(props: {
             presentation.title
           )}
         </span>
-        {description && !expanded ? (
+        {description && (single || !expanded) ? (
           <span className={cn("w-0 min-w-0 grow truncate @max-[400px]:sr-only", mutedText)}>
             {description}
           </span>
@@ -343,6 +342,9 @@ export function BackgroundWorkBanner(props: {
   );
   return (
     <div data-background-work-banner="true">
+      <span role="status" className="sr-only">
+        {presentation.title}
+      </span>
       <div className="flex items-center">
         {single ? (
           <ComposerBanner.Row className="flex-1">{header}</ComposerBanner.Row>

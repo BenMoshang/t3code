@@ -141,4 +141,19 @@ describe("sidebar keyboard navigation", () => {
     press(action, "Escape");
     expect(document.activeElement).toBe(owner);
   });
+
+  it("skips disabled rows and leaves controls outside rows in the Tab order", () => {
+    using tree = setup();
+    const first = tree.row("first");
+    const loading = tree.row("settled:more");
+    loading.disabled = true;
+    const undo = document.createElement("button");
+    undo.textContent = "Undo";
+    tree.root.append(undo);
+    tree.install();
+    first.focus();
+    press(first, "ArrowDown");
+    expect(document.activeElement).toBe(first);
+    expect(undo.tabIndex).toBe(0);
+  });
 });

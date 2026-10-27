@@ -1719,7 +1719,7 @@ export default function ThreadTerminalDrawer({
     return (
       <aside
         ref={drawerRef}
-        {...(!isPanel ? terminalArea : {})}
+        {...(!isPanel && visible ? terminalArea : {})}
         data-thread-terminal-drawer
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
@@ -1756,7 +1756,7 @@ export default function ThreadTerminalDrawer({
   return (
     <aside
       ref={drawerRef}
-      {...(!isPanel ? terminalArea : {})}
+      {...(!isPanel && visible ? terminalArea : {})}
       data-thread-terminal-drawer
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(

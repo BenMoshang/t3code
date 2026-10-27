@@ -41,7 +41,7 @@ export function installSidebarTree(root: HTMLElement) {
       const hidden = row.closest('[hidden], [inert], [aria-hidden="true"]');
       // A dialog can temporarily make the whole workspace inert. Keep the tree's
       // Tab stop ready for its return while still excluding exiting row clones.
-      return !hidden || !root.contains(hidden);
+      return (!hidden || !root.contains(hidden)) && !row.matches(":disabled");
     });
     const byId = new Map(rows.map((row) => [row.dataset.sidebarRow, row]));
     rows = rows.filter((row) => {
@@ -80,6 +80,7 @@ export function installSidebarTree(root: HTMLElement) {
     // the tree otherwise contributes one Tab stop.
     for (const control of root.querySelectorAll<HTMLElement>(CONTROL)) {
       if (
+        (control.closest(ROW) || control.dataset.sidebarActionFor) &&
         !control.matches(ROW) &&
         !control.matches('input, textarea, select, [contenteditable="true"]') &&
         !rowActions.includes(control)
@@ -245,6 +246,7 @@ export function installSidebarTree(root: HTMLElement) {
       "data-sidebar-parent",
       "aria-expanded",
       "hidden",
+      "disabled",
       "inert",
       "aria-hidden",
     ],

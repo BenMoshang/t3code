@@ -2,7 +2,7 @@ import { dismissContextMenu } from "../contextMenuFallback";
 
 const AREA_SELECTOR = "[data-workspace-area]";
 const FOCUS_BOUNDARY_SELECTOR =
-  '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog[open], [data-keybinding-capture], [data-slot$="-popup"]:not([data-slot="tooltip-popup"]):not([role="tooltip"])';
+  '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog[open], [data-slot$="-popup"]:not([data-slot="tooltip-popup"]):not([role="tooltip"])';
 const FOCUSABLE_SELECTOR =
   'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [contenteditable="true"], [tabindex]';
 

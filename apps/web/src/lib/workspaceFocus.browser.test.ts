@@ -129,4 +129,14 @@ describe("workspace area focus", () => {
     expect(fixture.controller.move(1)).toBe(true);
     expect(document.activeElement).toBe(nav.button);
   });
+
+  it("keeps moving while a shortcut recorder is on the page but not focused", () => {
+    using fixture = setup();
+    const nav = fixture.area("settings-nav", 0);
+    const content = fixture.area("settings", 1);
+    fixture.append('<button data-keybinding-capture="">Record shortcut</button>');
+    nav.button.focus();
+    expect(fixture.controller.move(1)).toBe(true);
+    expect(document.activeElement).toBe(content.button);
+  });
 });

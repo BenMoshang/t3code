@@ -644,11 +644,17 @@ export const make = Effect.gen(function* () {
   const gitFailure = (cause: unknown) =>
     failure("The pull request could not be checked out with git.", cause);
 
-  const runGit = (cwd: string, operation: string, args: ReadonlyArray<string>) =>
+  const runGit = (
+    cwd: string,
+    operation: string,
+    args: ReadonlyArray<string>,
+    options?: { readonly writesSharedConfig?: boolean },
+  ) =>
     git.execute({
       operation: `GitHubSourceControlProvider.checkoutPullRequest.${operation}`,
       cwd,
       args,
+      ...options,
     });
 
   const checkoutPullRequest = Effect.fn("GitHubSourceControlProvider.checkoutPullRequest")(
@@ -750,7 +756,12 @@ export const make = Effect.gen(function* () {
       );
 
       yield* Effect.gen(function* () {
-        if (!exists) yield* runGit(input.cwd, "branch", ["branch", "--", localBranch, target.ref]);
+        if (!exists) {
+          // Tracking a remote-tracking ref writes the new branch's upstream.
+          yield* runGit(input.cwd, "branch", ["branch", "--", localBranch, target.ref], {
+            writesSharedConfig: true,
+          });
+        }
         yield* Effect.scoped(git.switchRef({ cwd: input.cwd, refName: localBranch }));
         if (exists) {
           yield* runGit(

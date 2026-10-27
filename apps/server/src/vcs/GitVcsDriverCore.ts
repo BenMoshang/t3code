@@ -1737,13 +1737,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       suffix += 1;
     }
 
-    yield* runGit("GitVcsDriver.ensureRemote.add", input.cwd, [
-      "remote",
-      "add",
-      "--",
-      remoteName,
-      input.url,
-    ]);
+    yield* runGit(
+      "GitVcsDriver.ensureRemote.add",
+      input.cwd,
+      ["remote", "add", "--", remoteName, input.url],
+      { writesSharedConfig: true },
+    );
     return remoteName;
   });
 
@@ -3726,9 +3725,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }
       worktreePath = path.join(parentDir, repoName, sanitizedBranch);
     }
-    const args = input.newRefName
-      ? ["worktree", "add", "-b", input.newRefName, "--", worktreePath, input.refName]
-      : ["worktree", "add", "--", worktreePath, input.refName];
+    if (input.newRefName) {
+      // Kept apart from the checkout so the shared-config lock only covers the tracking write.
+      yield* executeGitWithStableDiagnostics(
+        "GitVcsDriver.createWorktree.createBranch",
+        input.cwd,
+        ["branch", "--", input.newRefName, input.refName],
+        { fallbackErrorDetail: "git worktree add failed", writesSharedConfig: true },
+      );
+    }
+    const args = ["worktree", "add", "--", worktreePath, input.newRefName ?? input.refName];
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
 
@@ -3740,8 +3746,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       {
         fallbackErrorDetail: "git worktree add failed",
         timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-        // Tracking a remote start point writes the new branch's upstream.
-        writesSharedConfig: true,
         ...(onCheckoutProgress
           ? {
               // Git only prints checkout progress when stderr is a tty or the
@@ -3795,19 +3799,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         yield* progress.onSubmodulesStarted();
       }
       const onSubmoduleLine = progress?.onSubmoduleLine;
+      // Registering submodule URLs writes the shared config; the clones that follow do not.
       yield* runGit(
-        "GitVcsDriver.createWorktree.updateSubmodules",
+        "GitVcsDriver.createWorktree.initSubmodules",
         worktreePath,
-        submoduleMode.value === "recursive"
-          ? ["submodule", "update", "--init", "--recursive"]
-          : ["submodule", "update", "--init"],
-        onSubmoduleLine
-          ? {
-              env: { LC_ALL: "C" },
-              progress: { onStdoutLine: onSubmoduleLine, onStderrLine: onSubmoduleLine },
-            }
-          : {},
+        ["submodule", "init"],
+        { writesSharedConfig: true },
       ).pipe(
+        Effect.andThen(
+          runGit(
+            "GitVcsDriver.createWorktree.updateSubmodules",
+            worktreePath,
+            submoduleMode.value === "recursive"
+              ? ["submodule", "update", "--init", "--recursive"]
+              : ["submodule", "update", "--init"],
+            onSubmoduleLine
+              ? {
+                  env: { LC_ALL: "C" },
+                  progress: { onStdoutLine: onSubmoduleLine, onStderrLine: onSubmoduleLine },
+                }
+              : {},
+          ),
+        ),
         Effect.matchEffect({
           onFailure: (cause) =>
             Effect.logWarning("worktree submodule checkout failed; submodule paths are empty", {
@@ -4139,6 +4152,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       localBranchAlreadyExists
         ? ["branch", "--force", "--", input.localBranch, targetRef]
         : ["branch", "--", input.localBranch, targetRef],
+      { writesSharedConfig: true },
     );
   });
 
@@ -4296,6 +4310,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       {
         timeoutMs: 10_000,
         fallbackErrorDetail: "git branch rename failed",
+        writesSharedConfig: true,
       },
     );
 

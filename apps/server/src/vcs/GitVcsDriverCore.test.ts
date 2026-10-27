@@ -1071,7 +1071,9 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           const spawner = ChildProcessSpawner.make((command) => {
             if (
               ChildProcess.isStandardCommand(command) &&
-              (command.args.includes("worktree") || command.args[0] === "checkout")
+              (command.args.includes("worktree") ||
+                command.args[0] === "branch" ||
+                command.args[0] === "checkout")
             ) {
               locales.push(command.options.env?.LC_ALL);
             }
@@ -3136,7 +3138,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const worktrees = yield* makeTmpDir("git-worktrees-");
 
         // Git has no lock timeout for .git/config, which every worktree shares: a writer that
-        // overlaps another fails, and `worktree add -b` then leaves its branch without a worktree.
+        // overlaps another fails, and a branch can then be left without its worktree.
         let configWriters = 0;
         let peakConfigWriters = 0;
         const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -3144,7 +3146,8 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           Effect.gen(function* () {
             const args = ChildProcess.isStandardCommand(command) ? command.args : [];
             const writesConfig =
-              (args.includes("worktree") && args.includes("add")) ||
+              (args.includes("worktree") && args.includes("add") && args.includes("-b")) ||
+              (args[0] === "branch" && (args[1] === "--" || args[1] === "-m")) ||
               (args[0] === "config" && !args[1]?.startsWith("-"));
             if (!writesConfig) return yield* delegate.spawn(command);
             configWriters += 1;
@@ -3176,12 +3179,25 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             }),
           { concurrency: "unbounded" },
         );
+        // Launches rename their temporary branch from inside the new worktree.
+        yield* Effect.forEach(
+          branches,
+          (branch) =>
+            driver.renameBranch({
+              cwd: path.join(worktrees, branch.replace("/", "-")),
+              oldBranch: branch,
+              newBranch: `${branch}-renamed`,
+              exactName: true,
+            }),
+          { concurrency: "unbounded" },
+        );
 
         assert.equal(peakConfigWriters, 1);
         for (const branch of branches) {
-          assert.equal(yield* git(cwd, ["config", `branch.${branch}.remote`]), "origin");
+          const renamed = `${branch}-renamed`;
+          assert.equal(yield* git(cwd, ["config", `branch.${renamed}.remote`]), "origin");
           assert.equal(
-            yield* git(cwd, ["config", `branch.${branch}.t3-merge-base-ref`]),
+            yield* git(cwd, ["config", `branch.${renamed}.t3-merge-base-ref`]),
             `refs/remotes/origin/${initialBranch}`,
           );
         }

@@ -12364,7 +12364,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const dispatchWithReceipt = Effect.fnUntraced(function* (command: OrchestrationV2ServerCommand) {
     const dispatch = threadDispatch.withLock(
       commandThreadId(command),
-      dispatchWithReceiptEffect(command),
+      command.type === "thread.delete"
+        ? threadDispatch.withDeletionLock(dispatchWithReceiptEffect(command))
+        : dispatchWithReceiptEffect(command),
     );
     if (command.type !== "message.dispatch" || !mayStartSubagentFollowup(command))
       return yield* dispatch;

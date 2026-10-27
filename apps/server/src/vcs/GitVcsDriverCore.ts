@@ -2517,7 +2517,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   // `push -u` exits 0 without the upstream when another writer holds the config lock.
   const recordPushedUpstream = Effect.fn("recordPushedUpstream")(
     function* (cwd: string, branch: string, remoteName: string, publishBranch: string) {
-      // Git ignores a merge ref without a remote, so a lost second write leaves no upstream.
+      // Without a prior upstream, Git ignores a merge ref with no remote, so losing the second
+      // write leaves none rather than a wrong one.
       yield* writeConfigValue({
         cwd,
         key: `branch.${branch}.merge`,
@@ -4244,12 +4245,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     const localBranchAlreadyExists = yield* branchExists(input.cwd, input.localBranch);
     const targetRef = `${input.remoteName}/${input.remoteBranch}`;
+    if (!localBranchAlreadyExists) {
+      return yield* createBranchAt(
+        "GitVcsDriver.fetchRemoteBranch.materialize",
+        { cwd: input.cwd, branch: input.localBranch, startPoint: targetRef },
+        "git branch create failed",
+      );
+    }
     yield* runGit(
       "GitVcsDriver.fetchRemoteBranch.materialize",
       input.cwd,
-      localBranchAlreadyExists
-        ? ["branch", "--force", "--", input.localBranch, targetRef]
-        : ["branch", "--", input.localBranch, targetRef],
+      ["branch", "--force", "--", input.localBranch, targetRef],
       { writesSharedConfig: true },
     );
   });

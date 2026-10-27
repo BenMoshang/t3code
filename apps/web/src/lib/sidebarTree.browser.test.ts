@@ -120,4 +120,25 @@ describe("sidebar keyboard navigation", () => {
     expect(document.activeElement).toBe(owner);
     expect(action.tabIndex).toBe(-1);
   });
+
+  it("keeps row actions after an action's portalled menu returns focus", () => {
+    using tree = setup();
+    const owner = tree.row("thread");
+    const action = document.createElement("button");
+    action.textContent = "Snooze";
+    action.dataset.sidebarActionFor = "thread";
+    tree.root.append(action);
+    const menu = document.createElement("button");
+    menu.textContent = "1 hour";
+    document.body.append(menu);
+    using _menu = { [Symbol.dispose]: () => menu.remove() };
+    tree.install();
+    owner.focus();
+    press(owner, "F2");
+    menu.focus();
+    action.focus();
+    expect(action.tabIndex).toBe(0);
+    press(action, "Escape");
+    expect(document.activeElement).toBe(owner);
+  });
 });

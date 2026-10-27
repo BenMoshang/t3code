@@ -102,7 +102,8 @@ export function installSidebarTree(root: HTMLElement) {
 
   const onFocus = (event: FocusEvent) => {
     ownsFocus = root.contains(event.target as Node);
-    if (!ownsFocus || (event.target instanceof HTMLElement && event.target.matches(ROW)))
+    // A row action can open a portalled menu; keep the actions until focus returns to a row.
+    if (ownsFocus && event.target instanceof HTMLElement && event.target.matches(ROW))
       leaveActions();
     if (!ownsFocus || !(event.target instanceof HTMLElement) || !event.target.matches(ROW)) return;
     setTabStop(event.target);
@@ -155,10 +156,10 @@ export function installSidebarTree(root: HTMLElement) {
         rowActions = Array.from(root.querySelectorAll<HTMLElement>(CONTROL)).filter(
           (control) =>
             control !== row &&
-            !control.matches(`${ROW}, :disabled`) &&
-            isWorkspaceElementVisible(control) &&
             (control.closest(ROW) === row ||
-              control.dataset.sidebarActionFor === row.dataset.sidebarRow),
+              control.dataset.sidebarActionFor === row.dataset.sidebarRow) &&
+            !control.matches(`${ROW}, :disabled`) &&
+            isWorkspaceElementVisible(control),
         );
         if (rowActions.length > 0) {
           actionRow = row;

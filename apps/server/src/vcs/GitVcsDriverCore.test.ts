@@ -1057,6 +1057,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
 
     it.effect.each([
       { action: "worktree add", detail: "git worktree add failed" },
+      { action: "worktree add -b", detail: "git worktree add failed" },
       { action: "switch", detail: "git checkout failed" },
     ])(
       "reports a missing ref during $action with stable, redacted diagnostics",
@@ -1090,7 +1091,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
                   .createWorktree({
                     cwd,
                     refName,
-                    newRefName: "t3/new-thread",
+                    ...(action === "worktree add -b" ? { newRefName: "t3/new-thread" } : {}),
                     path: path.join(cwd, "worktree"),
                   })
                   .pipe(Effect.flip);
@@ -3027,6 +3028,16 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.equal(
           yield* git(previous.worktree.path, ["branch", "--show-current"]),
           initialBranch,
+        );
+        const fromPrevious = yield* driver.createWorktree({
+          cwd,
+          path: pathService.join(worktrees, "from-previous"),
+          refName: "-",
+          newRefName: "from-previous",
+        });
+        assert.equal(
+          yield* git(fromPrevious.worktree.path, ["rev-parse", "HEAD"]),
+          yield* git(cwd, ["rev-parse", initialBranch]),
         );
       }),
     );

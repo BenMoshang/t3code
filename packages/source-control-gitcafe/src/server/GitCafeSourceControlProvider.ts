@@ -499,6 +499,7 @@ export const make = Effect.gen(function* () {
                 `refs/remotes/${remoteName}/${pull.headRefName}`,
                 "--",
               ],
+              writesSharedConfig: true,
             });
           yield* git.setBranchUpstream({ ...remoteBranch, branch: localBranch });
           yield* Effect.scoped(git.switchRef({ cwd: input.cwd, refName: localBranch }));

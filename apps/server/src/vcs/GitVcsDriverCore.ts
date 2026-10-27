@@ -3730,7 +3730,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       yield* executeGitWithStableDiagnostics(
         "GitVcsDriver.createWorktree.createBranch",
         input.cwd,
-        ["branch", "--", input.newRefName, input.refName],
+        // `git branch` does not read a lone - as the previous checkout.
+        ["branch", "--", input.newRefName, input.refName === "-" ? "@{-1}" : input.refName],
         { fallbackErrorDetail: "git worktree add failed", writesSharedConfig: true },
       );
     }
@@ -4289,6 +4290,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       {
         timeoutMs: 10_000,
         fallbackErrorDetail: "git branch delete failed",
+        // Under contention Git deletes the ref but keeps its config section.
+        writesSharedConfig: true,
       },
     );
   });
@@ -4396,6 +4399,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         {
           timeoutMs: 10_000,
           fallbackErrorDetail: "git checkout failed",
+          // Checking out a remote branch creates a local one that tracks it.
+          writesSharedConfig: true,
         },
       );
 

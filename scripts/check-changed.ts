@@ -274,7 +274,12 @@ const results = await Promise.all(
         // takes about a second, so the commands start right after it.
         if ("run" in step) return finish(step.run());
         const output: Array<Buffer> = [];
-        const child = NodeChildProcess.spawn("vp", step.args, { cwd: root, env });
+        // Run the local JS entry because Windows cannot spawn npm's .cmd shim.
+        const child = NodeChildProcess.spawn(
+          process.execPath,
+          [NodePath.join(root, "node_modules/vite-plus/bin/vp"), ...step.args],
+          { cwd: root, env },
+        );
         child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
         child.stderr.on("data", (chunk: Buffer) => output.push(chunk));
         // A failed spawn emits "error", then "close" with a nonzero code.

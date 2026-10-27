@@ -644,17 +644,11 @@ export const make = Effect.gen(function* () {
   const gitFailure = (cause: unknown) =>
     failure("The pull request could not be checked out with git.", cause);
 
-  const runGit = (
-    cwd: string,
-    operation: string,
-    args: ReadonlyArray<string>,
-    options?: { readonly writesSharedConfig?: boolean },
-  ) =>
+  const runGit = (cwd: string, operation: string, args: ReadonlyArray<string>) =>
     git.execute({
       operation: `GitHubSourceControlProvider.checkoutPullRequest.${operation}`,
       cwd,
       args,
-      ...options,
     });
 
   const checkoutPullRequest = Effect.fn("GitHubSourceControlProvider.checkoutPullRequest")(
@@ -757,10 +751,7 @@ export const make = Effect.gen(function* () {
 
       yield* Effect.gen(function* () {
         if (!exists) {
-          // Tracking a remote-tracking ref writes the new branch's upstream.
-          yield* runGit(input.cwd, "branch", ["branch", "--", localBranch, target.ref], {
-            writesSharedConfig: true,
-          });
+          yield* git.createBranch({ cwd: input.cwd, branch: localBranch, startPoint: target.ref });
         }
         yield* Effect.scoped(git.switchRef({ cwd: input.cwd, refName: localBranch }));
         if (exists) {
@@ -902,14 +893,8 @@ export const make = Effect.gen(function* () {
       baseBranch,
     }) {
       return git
-        .execute({
-          operation: "GitHubSourceControlProvider.recordBranchBase",
-          cwd,
-          args: ["config", `branch.${branch}.gh-merge-base`, baseBranch],
-          writesSharedConfig: true,
-        })
+        .writeConfigValue({ cwd, key: `branch.${branch}.gh-merge-base`, value: baseBranch })
         .pipe(
-          Effect.asVoid,
           Effect.catch((cause) =>
             Effect.logWarning("Could not record the branch base for gh", { cause }),
           ),

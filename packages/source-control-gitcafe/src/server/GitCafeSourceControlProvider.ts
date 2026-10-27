@@ -492,14 +492,15 @@ export const make = Effect.gen(function* () {
             yield* git.execute({
               operation: "GitCafeSourceControlProvider.checkoutChangeRequest",
               cwd: input.cwd,
+              // The upstream is recorded next, through the host's serialized config write.
               args: [
                 "checkout",
+                "--no-track",
                 "-B",
                 localBranch,
                 `refs/remotes/${remoteName}/${pull.headRefName}`,
                 "--",
               ],
-              writesSharedConfig: true,
             });
           yield* git.setBranchUpstream({ ...remoteBranch, branch: localBranch });
           yield* Effect.scoped(git.switchRef({ cwd: input.cwd, refName: localBranch }));

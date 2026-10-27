@@ -437,7 +437,8 @@ const GIT_FAILURE_REASON_PATTERNS: ReadonlyArray<readonly [RegExp, GitCommandFai
   [/would clobber existing tag/i, "tag_would_be_clobbered"],
   [/is already (?:used by worktree at|checked out at)/i, "branch_checked_out_in_worktree"],
   [/a branch named .+ already exists/i, "branch_already_exists"],
-  [/could not lock config file/i, "config_locked"],
+  // The same prefix also reports permission errors, which retrying cannot fix.
+  [/could not lock config file .+: File exists/i, "config_locked"],
   [
     /(?:authentication failed|could not read Username|could not read Password|permission denied \([a-z-]+(?:,[a-z-]+)*\)|permission denied, please try again)/i,
     "authentication_failed",
@@ -1744,7 +1745,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       suffix += 1;
     }
 
-    return yield* runGit(
+    return yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.ensureRemote.add",
       input.cwd,
       ["remote", "add", "--", remoteName, input.url],
@@ -3409,22 +3410,45 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     ).pipe(retryWhileConfigLocked);
   });
 
-  const createBranchAt = (
+  // `git branch` writes a remote start point's upstream itself and fails outright if the
+  // config is locked, so tracking is recorded afterwards by a write that retries.
+  const createBranchAt = Effect.fn("createBranchAt")(function* (
     operation: string,
     input: GitVcsDriver.GitCreateBranchInput,
     fallbackErrorDetail: string,
-  ) =>
-    executeGitWithStableDiagnostics(
+  ) {
+    // `git branch` does not read a lone - as the previous checkout.
+    const startPoint = input.startPoint === "-" ? "@{-1}" : input.startPoint;
+    yield* executeGitWithStableDiagnostics(
       operation,
       input.cwd,
-      // `git branch` does not read a lone - as the previous checkout.
-      ["branch", "--", input.branch, input.startPoint === "-" ? "@{-1}" : input.startPoint],
-      { fallbackErrorDetail, writesSharedConfig: true },
-    ).pipe(Effect.asVoid);
+      ["branch", "--no-track", "--", input.branch, startPoint],
+      { fallbackErrorDetail },
+    );
+    const startRef = yield* executeGit(
+      `${operation}.resolveStartPoint`,
+      input.cwd,
+      ["rev-parse", "--symbolic-full-name", startPoint],
+      { allowNonZeroExit: true },
+    ).pipe(Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : "")));
+    if (!startRef.startsWith("refs/remotes/")) return;
+    yield* executeGitWithStableDiagnostics(
+      `${operation}.track`,
+      input.cwd,
+      ["branch", `--set-upstream-to=${startRef}`, "--", input.branch],
+      { writesSharedConfig: true },
+    ).pipe(
+      retryWhileConfigLocked,
+      Effect.catch((cause) =>
+        Effect.logWarning("created the branch without tracking its start point", { cause }),
+      ),
+    );
+  });
 
   const createBranch: GitVcsDriver.GitVcsDriver["Service"]["createBranch"] = Effect.fn(
     "createBranch",
   )(function* (input) {
+    yield* refuseOptionLikeRefName("GitVcsDriver.createBranch", input.cwd, input.startPoint);
     yield* createBranchAt("GitVcsDriver.createBranch", input, "git branch create failed");
   });
 
@@ -4474,7 +4498,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           timeoutMs: 10_000,
           fallbackErrorDetail: "git checkout failed",
           // Checking out a remote branch creates a local one that tracks it.
-          writesSharedConfig: true,
+          writesSharedConfig: !localInputExists,
         },
       );
 

@@ -1751,6 +1751,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ["remote", "add", "--", remoteName, input.url],
       { writesSharedConfig: true },
     ).pipe(
+      retryWhileConfigLocked,
       Effect.as(remoteName),
       // A parallel launch for the same fork may have added it since the listing above.
       Effect.catch((error) =>
@@ -2514,30 +2515,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   });
 
   // `push -u` exits 0 without the upstream when another writer holds the config lock.
-  const recordPushedUpstream = (
-    cwd: string,
-    branch: string,
-    remoteName: string,
-    publishBranch: string,
-  ) =>
-    Effect.all(
-      [
-        writeConfigValue({ cwd, key: `branch.${branch}.remote`, value: remoteName }),
-        writeConfigValue({
-          cwd,
-          key: `branch.${branch}.merge`,
-          value: `refs/heads/${publishBranch}`,
-        }),
-      ],
-      { discard: true },
-    ).pipe(
-      Effect.as(true),
-      Effect.catch((cause) =>
-        Effect.logWarning("pushed, but could not record the branch upstream", { cause }).pipe(
-          Effect.as(false),
-        ),
+  const recordPushedUpstream = Effect.fn("recordPushedUpstream")(
+    function* (cwd: string, branch: string, remoteName: string, publishBranch: string) {
+      // Git ignores a merge ref without a remote, so a lost second write leaves no upstream.
+      yield* writeConfigValue({
+        cwd,
+        key: `branch.${branch}.merge`,
+        value: `refs/heads/${publishBranch}`,
+      });
+      yield* writeConfigValue({ cwd, key: `branch.${branch}.remote`, value: remoteName });
+      // Matches what `push -u` sets for a remote upstream.
+      const autoSetupRebase = yield* readConfigValue(cwd, "branch.autoSetupRebase");
+      if (autoSetupRebase === "always" || autoSetupRebase === "remote") {
+        yield* writeConfigValue({ cwd, key: `branch.${branch}.rebase`, value: "true" });
+      }
+      return true;
+    },
+    Effect.catch((cause) =>
+      Effect.logWarning("pushed, but could not record the branch upstream", { cause }).pipe(
+        Effect.as(false),
       ),
-    );
+    ),
+  );
 
   const pushCurrentBranch: GitVcsDriver.GitVcsDriver["Service"]["pushCurrentBranch"] = Effect.fn(
     "pushCurrentBranch",
@@ -4516,6 +4515,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       yield* executeGit("GitVcsDriver.createRef", input.cwd, ["branch", "--", input.refName], {
         timeoutMs: 10_000,
         fallbackErrorDetail: "git branch create failed",
+        // `branch.autoSetupMerge=always` records HEAD's branch as the upstream.
+        writesSharedConfig: true,
       });
       if (input.switchRef) {
         yield* switchRef({ cwd: input.cwd, refName: input.refName });

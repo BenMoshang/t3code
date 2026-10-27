@@ -9,7 +9,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as Queue from "effect/Queue";
 import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
@@ -89,10 +88,14 @@ const makeFailedHandle = (stderr: string) =>
     stderr: Stream.encodeText(Stream.make(stderr)),
   });
 
-// Reports when matching git commands exit, so a test can act between a write's attempts.
-const makeDriverReportingExits = (matches: (args: ReadonlyArray<string>) => boolean) =>
+// Releases the lock as soon as a matching git command fails on it, before the driver retries.
+const makeDriverReleasingLock = (
+  matches: (args: ReadonlyArray<string>) => boolean,
+  lockPath: string,
+) =>
   Effect.gen(function* () {
-    const exits = yield* Queue.unbounded<ChildProcessSpawner.ExitCode>();
+    const failures = yield* Ref.make(0);
+    const fileSystem = yield* FileSystem.FileSystem;
     const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
     const spawner = ChildProcessSpawner.make((command) =>
       Effect.gen(function* () {
@@ -100,7 +103,16 @@ const makeDriverReportingExits = (matches: (args: ReadonlyArray<string>) => bool
         if (!ChildProcess.isStandardCommand(command) || !matches(command.args)) return handle;
         return ChildProcessSpawner.makeHandle({
           ...handle,
-          exitCode: handle.exitCode.pipe(Effect.tap((exitCode) => Queue.offer(exits, exitCode))),
+          exitCode: handle.exitCode.pipe(
+            Effect.tap((exitCode) =>
+              exitCode === 0
+                ? Effect.void
+                : Ref.update(failures, (count) => count + 1).pipe(
+                    Effect.andThen(fileSystem.remove(lockPath, { force: true })),
+                    Effect.orDie,
+                  ),
+            ),
+          ),
         });
       }),
     );
@@ -108,7 +120,7 @@ const makeDriverReportingExits = (matches: (args: ReadonlyArray<string>) => bool
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provide(layerServerConfig),
     );
-    return { driver, exits };
+    return { driver, failures };
   });
 
 describe("Git output collection", () => {
@@ -3858,16 +3870,17 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const path = yield* Path.Path;
         const lockPath = path.join(cwd, ".git", "config.lock");
         yield* fileSystem.writeFileString(lockPath, "");
-        const { driver, exits } = yield* makeDriverReportingExits((args) => args[1] === "t3.test");
+        const { driver, failures } = yield* makeDriverReleasingLock(
+          (args) => args[1] === "t3.test",
+          lockPath,
+        );
 
-        // Retries wait on the real clock while the external lock is released.
-        const write = yield* TestClock.withLive(
+        // The retry waits on the real clock; the lock is already gone by then.
+        yield* TestClock.withLive(
           driver.writeConfigValue({ cwd, key: "t3.test", value: "written" }),
-        ).pipe(Effect.forkChild);
-        assert.notEqual(yield* Queue.take(exits), 0);
-        yield* fileSystem.remove(lockPath);
-        yield* Fiber.join(write);
+        );
 
+        assert.equal(yield* Ref.get(failures), 1);
         assert.equal(yield* git(cwd, ["config", "t3.test"]), "written");
       }),
     );
@@ -3884,27 +3897,22 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const path = yield* Path.Path;
         const lockPath = path.join(cwd, ".git", "config.lock");
         yield* fileSystem.writeFileString(lockPath, "");
-        const { driver, exits } = yield* makeDriverReportingExits((args) =>
-          args.some((arg) => arg.startsWith("--set-upstream-to")),
+        const { driver, failures } = yield* makeDriverReleasingLock(
+          (args) => args.some((arg) => arg.startsWith("--set-upstream-to")),
+          lockPath,
         );
 
-        // The upstream write retries on the real clock while the external lock is released.
-        const creating = yield* TestClock.withLive(
+        // The upstream retry waits on the real clock; the lock is already gone by then.
+        yield* TestClock.withLive(
           driver.createWorktree({
             cwd,
             path: path.join(yield* makeTmpDir("git-worktrees-"), "tracked"),
             refName: `origin/${initialBranch}`,
             newRefName: "feature/tracked",
           }),
-        ).pipe(Effect.forkChild);
-        // Raced with the launch so a branch step that fails under the lock fails the test.
-        assert.notEqual(
-          yield* Effect.raceFirst(Queue.take(exits), Fiber.join(creating)),
-          ChildProcessSpawner.ExitCode(0),
         );
-        yield* fileSystem.remove(lockPath);
-        yield* Fiber.join(creating);
 
+        assert.equal(yield* Ref.get(failures), 1);
         assert.equal(
           yield* git(cwd, ["rev-parse", "--abbrev-ref", "feature/tracked@{upstream}"]),
           `origin/${initialBranch}`,
@@ -4422,6 +4430,22 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           status: "skipped_up_to_date",
           branch: "feature/push",
         });
+      }),
+    );
+
+    it.effect("rebases a pushed branch's pulls when branch.autoSetupRebase asks for it", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-remote-");
+        yield* initRepoWithCommit(cwd);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["config", "branch.autoSetupRebase", "always"]);
+        yield* git(cwd, ["checkout", "-q", "-b", "feature/rebase"]);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        assert.deepInclude(yield* driver.pushCurrentBranch(cwd, null), { setUpstream: true });
+        assert.equal(yield* driver.readConfigValue(cwd, "branch.feature/rebase.rebase"), "true");
       }),
     );
 

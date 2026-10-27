@@ -13,6 +13,8 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { useWorkspaceArea, useWorkspacePageFocus } from "../WorkspaceNavigation";
+import { useWorkspaceFocusRecovery } from "~/hooks/useWorkspaceFocusRecovery";
 import { PullRequestCompactFilterMenu } from "./PullRequestCompactFilterMenu";
 import type { PullRequestFilterOption } from "./PullRequestListFilters";
 import { INVOLVEMENT_TABS, STATE_TABS } from "./pullRequestListOptions";
@@ -117,6 +119,9 @@ export function PullRequestsColumn({
   listBody: ReactNode;
   scrollRef: RefObject<HTMLDivElement | null>;
 }) {
+  const contentArea = useWorkspaceArea("pull-requests", 1, "Pull requests");
+  useWorkspacePageFocus("pull-requests");
+  useWorkspaceFocusRecovery('[data-workspace-area="pull-requests"]', maximizedAway, "panel");
   const markerRef = useRef<HTMLDivElement | null>(null);
   const [condensed, setCondensed] = useState(false);
   useEffect(() => {
@@ -167,6 +172,8 @@ export function PullRequestsColumn({
 
   return (
     <div
+      {...contentArea}
+      inert={maximizedAway}
       className={cn(
         "@container/pr-list flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-background",
         maximizedAway ? "w-0 flex-none" : "flex-1",

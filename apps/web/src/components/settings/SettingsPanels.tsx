@@ -1,3 +1,4 @@
+import { AccessibilitySettings } from "./AccessibilitySettings";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
@@ -753,6 +754,7 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <AccessibilitySettings />
       <SettingsSection id="notifications" title="Notifications">
         <NotificationSettings />
         <SettingsRow

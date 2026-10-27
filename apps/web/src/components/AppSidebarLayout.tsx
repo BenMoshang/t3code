@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
+import { WorkspaceNavigation, useWorkspaceArea } from "./WorkspaceNavigation";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import {
@@ -374,6 +375,7 @@ function SidebarControl() {
 }
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
+  const sidebarArea = useWorkspaceArea("sidebar", 0, "Threads");
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
@@ -427,6 +429,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           side="left"
           collapsible="offcanvas"
           data-app-sidebar=""
+          {...sidebarArea}
           role="navigation"
           aria-label="Threads"
           resizable={{
@@ -450,6 +453,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         {children}
         <BackgroundThreadAnnouncer />
         <SidebarControl />
+        <WorkspaceNavigation />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

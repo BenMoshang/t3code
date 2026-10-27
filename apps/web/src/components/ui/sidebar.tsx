@@ -21,6 +21,8 @@ import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
+import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
+import { useWorkspaceFocusRecovery } from "~/hooks/useWorkspaceFocusRecovery";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -144,11 +146,16 @@ function createSidebarOpenStore(defaultOpen: boolean) {
       for (const listener of collapseListeners) listener();
       moveFocusOutOfCollapsingSidebar();
     }
-    if (open !== state.open) publish({ ...state, open });
+    if (open !== state.open) {
+      if (!isMobileViewport()) announceSidebarVisibility(open);
+      publish({ ...state, open });
+    }
     void persistSidebarOpen(open);
   };
   const setOpenMobile = (openMobile: boolean) => {
-    if (openMobile !== state.openMobile) publish({ ...state, openMobile });
+    if (openMobile === state.openMobile) return;
+    if (isMobileViewport()) announceSidebarVisibility(openMobile);
+    publish({ ...state, openMobile });
   };
   return {
     subscribe: (listener: () => void) => {
@@ -192,6 +199,7 @@ function SidebarProvider({
   };
 
   const state = resolveSidebarState({ isMobile, open, openMobile });
+  useWorkspaceFocusRecovery("[data-app-sidebar]", `${isMobile}:${state}`);
 
   const contextValue: SidebarContextProps = {
     isMobile,
@@ -315,7 +323,7 @@ function Sidebar({
             }
           >
             <SheetHeader className="sr-only">
-              <SheetTitle>Sidebar</SheetTitle>
+              <SheetTitle>{props["aria-label"] ?? "Sidebar"}</SheetTitle>
               <SheetDescription>Displays the mobile sidebar.</SheetDescription>
             </SheetHeader>
             <div

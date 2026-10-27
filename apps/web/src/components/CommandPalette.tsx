@@ -66,6 +66,7 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
+  MonitorIcon,
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
@@ -88,6 +89,12 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import {
+  queueWorkspaceFocusFromPalette,
+  restoreWorkspaceFocusFromPalette,
+  requestWorkspaceFocus,
+} from "../lib/workspaceFocus";
+import { persistClientSettingsPatch } from "../hooks/useSettings";
 import {
   composerPromptLink,
   copyPromptLink,
@@ -129,6 +136,7 @@ import {
 } from "../lib/projectPaths";
 import {
   dispatchCommandPalette,
+  getCommandPaletteReturnFocus,
   useCommandPaletteMount,
   useCommandPaletteStore,
 } from "../commandPaletteStore";
@@ -323,8 +331,11 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
+        if (restoreWorkspaceFocusFromPalette()) return false;
+        const returnFocus = getCommandPaletteReturnFocus();
+        if (returnFocus === false) return false;
         const composer = composerHandleRef?.current;
-        if (!composer) return true;
+        if (!composer) return returnFocus;
         composer.focusAtEnd();
         return false;
       }}
@@ -1477,6 +1488,7 @@ function OpenCommandPaletteDialog(props: {
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+        requestWorkspaceFocus({ area: "pull-requests" });
       },
     });
   }
@@ -1492,6 +1504,32 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  for (const mode of ["auto", "on", "off"] as const) {
+    const title = `Accessible mode: ${mode === "auto" ? "Auto" : mode === "on" ? "On" : "Off"}${clientSettings.accessibilitySupport === mode ? " (current)" : ""}`;
+    actionItems.push({
+      kind: "action",
+      value: `action:accessible-mode:${mode}`,
+      title,
+      searchTerms: [title, "accessibility", "screen reader", "navigation hints"],
+      icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+      run: async () => persistClientSettingsPatch({ accessibilitySupport: mode }),
+    });
+  }
+  for (const direction of [1, -1] as const) {
+    const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
+    actionItems.push({
+      kind: "action",
+      value: `action:workspace-focus:${direction}`,
+      title,
+      searchTerms: [title, "accessibility", "navigation", "focus", "F6"],
+      icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: direction === 1 ? "workspace.focusNext" : "workspace.focusPrevious",
+      run: async () => {
+        queueWorkspaceFocusFromPalette(direction);
+      },
+    });
+  }
 
   actionItems.push({
     kind: "action",

@@ -1,3 +1,6 @@
+import { useWorkspaceArea } from "./WorkspaceNavigation";
+import { useWorkspacePanelFocus } from "../hooks/useWorkspacePanelFocus";
+import { useWorkspaceFocusRecovery } from "../hooks/useWorkspaceFocusRecovery";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
@@ -701,6 +704,8 @@ export default function ChatView(props: ChatViewProps) {
   const legendListRef = useRef<LegendListRef | null>(null);
   const getTimelineScrollableNode = () => legendListRef.current?.getScrollableNode() ?? null;
   const getTimelineScrollableNodeStable = useStableCallback(getTimelineScrollableNode);
+  const conversationArea = useWorkspaceArea("conversation", 1, "Conversation");
+  const composerArea = useWorkspaceArea("composer", 2, "Message input");
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const [composerTimelineInset, setComposerTimelineInset] = useState(0);
   const composerTimelineInsetRef = useRef(0);
@@ -969,6 +974,7 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
+  useWorkspacePanelFocus(activeThreadRef);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const rightPanelPresenceValue = {
@@ -995,6 +1001,7 @@ export default function ChatView(props: ChatViewProps) {
   const canMaximizeRightPanel = rightPanelOpen;
   const rightPanelMaximized = canMaximizeRightPanel && rightPanelState.maximized === true;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUsePlanSidebarSheet;
+  useWorkspaceFocusRecovery("[data-chat-column-maximized-away]", rightPanelMaximized, "panel");
   const [threadPanelPopoverHandle] = useState(PopoverCreateHandle);
   const [chatCanvasStore] = useState(createChatCanvasStore);
 
@@ -3134,6 +3141,7 @@ export default function ChatView(props: ChatViewProps) {
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
         data-chat-column
+        inert={rightPanelMaximized}
       >
         <header
           ref={threadPanelPopoverAnchorRef}
@@ -3213,7 +3221,10 @@ export default function ChatView(props: ChatViewProps) {
               setThreadError={setThreadError}
               setThreadErrorBannerDismissTick={setThreadErrorBannerDismissTick}
             />
-            <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            <div
+              {...conversationArea}
+              className="relative flex min-h-0 flex-1 flex-col bg-background outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
               <ThreadTimeline
                 threadDetailRef={routeThreadDetailRef}
                 entriesInput={timelineEntriesInput}
@@ -3320,6 +3331,7 @@ export default function ChatView(props: ChatViewProps) {
             </div>
 
             <div
+              {...composerArea}
               ref={(overlay: HTMLDivElement | null) => {
                 setComposerOverlayElement(overlay);
                 attachFollowComposerOverlay(overlay);

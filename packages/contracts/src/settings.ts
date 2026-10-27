@@ -307,6 +307,9 @@ export type ModelPreferences = {
 };
 
 export const ClientSettingsSchema = Schema.Struct({
+  accessibilitySupport: Schema.Literals(["auto", "on", "off"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("auto" as const)),
+  ),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1605,6 +1608,7 @@ export function requiredScopesForProjectMutation(
 }
 
 export const ClientSettingsPatch = Schema.Struct({
+  accessibilitySupport: Schema.optionalKey(Schema.Literals(["auto", "on", "off"])),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
